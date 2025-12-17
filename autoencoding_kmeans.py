@@ -120,6 +120,15 @@ meta_features = ['artists','popularity','track_genre']
 # 建立副本，避免修改原始 df
 df = df.copy()
 
+# -----------------------------
+# 檢查缺失值
+# -----------------------------
+missing_cols = df.isna().sum()
+missing_cols = missing_cols[missing_cols > 0]
+
+for col, missing in missing_cols.items():
+    print(f"{col}: {missing} missing")
+
 # 補缺失值（避免 NaN 造成 drop_duplicates 行為不一致）
 logger.info("Filling missing values for 'track_name' and 'artists'")
 df['track_name'] = df['track_name'].fillna("Unknown Track")
@@ -129,45 +138,61 @@ df['artists'] = df['artists'].fillna("Unknown Artist")
 logger.info("Dropping duplicate songs based on 'track_name' and 'artists'")
 df = df.drop_duplicates(subset=['track_name','artists'], keep='first').reset_index(drop=True)
 
+'''
+同時印出總筆數與 unique 數量 對後續做 Label Encoding、Embedding、Autoencoder 都很有幫助，因為可以快速知道：
+- artists 是否為 high-cardinality 特徵
+- 是否需要避免 One-Hot
+- 是否需要 embedding layer 或 autoencoder
+'''
+unique_artists = df['artists'].unique().tolist()
+logger.info("Artists: count=%d", len(unique_artists))
+unique_genres = df['track_genre'].unique()
+logger.info("Genres: count=%d, name=%s", len(unique_genres), unique_genres)
+
+'''
+Label Encoding 的使用時機
+1. 類別本身有順序（ordinal）
+2. 類別數量極大（high cardinality）
+'''
+logger.info("Label encoding 'artists'")
 # Label encode artists
-logger.info("Label encoding 'artists' and 'track_genre'")
 le_artist = LabelEncoder()
 df['artists_le'] = le_artist.fit_transform(df['artists'])
-
-
-
-
-
-
-logger.info("Unique genres: %s", df['track_genre'].unique())
 
 # # Label encode track_genre
 # le_genre = LabelEncoder()
 # df['genre_le'] = le_genre.fit_transform(df['track_genre'])
 
-# ===== One-Hot Encoding =====
+'''
+One-Hot Encoding 的使用時機
+1. 類別沒有順序（nominal）One-Hot 能讓 Autoencoder 自己學到類別之間的語意距離，而不會被假順序干擾。
+2. 類別數量不大（< 1000）One-Hot 維度不會太大，Autoencoder 可以有效壓縮。
+3. 你希望 Autoencoder 學到「類別之間的相似性」
+'''
+
+'''
+同時對 artists 與 genre 做 one-hot encoding 會導致維度過高，記憶體爆炸
+'''
+logger.info("One-Hot encoding 'track_genre'")
+# ===== One-Hot Encoding for genre =====
 ohe = OneHotEncoder(sparse_output=False)
-genre_ohe = ohe.fit_transform(df[['track_genre']])
+
+# 做 One-Hot
+ohe_features = ohe.fit_transform(df[['track_genre']])
 
 # ===== PCA 壓縮成 embedding（你可調整維度）=====
 pca = PCA(n_components=5, random_state=42)
-genre_emb = pca.fit_transform(genre_ohe)
+emb = pca.fit_transform(ohe_features)
 
 # ===== 加回 DataFrame =====
 emb_cols = [f"genre_emb_{i}" for i in range(5)]
-df[emb_cols] = genre_emb
+df[emb_cols] = emb
 
 # ===== 產生 genre_le（保留給後續程式碼使用）=====
 # 用 embedding 的第一維當作 genre_le（可排序、有語意）
 df['genre_le'] = df['genre_emb_0']
 
-
-
-
-
-
-
-logger.info("Number of unique artists: %d", len(le_artist.classes_))
+# 最終特徵集合
 all_features = audio_features + ['popularity', 'artists_le', 'genre_le']
 
 
@@ -282,7 +307,7 @@ X_emb_2d = pca_emb_2d.fit_transform(X_emb)
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 # 輸入想比較的 k 值
-k_list = [8, 10, 12]
+k_list = [8, 10, 12,14,16]
 
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
