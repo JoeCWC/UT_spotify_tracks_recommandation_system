@@ -12,6 +12,7 @@ import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.regularizers import l2
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -242,27 +243,80 @@ plt.ylabel("PC2")
 plt.savefig(f"./{output_dir}/pca_2d_no_clustering.png", dpi=300, bbox_inches='tight')
 plt.close()
 
+# ==================================
+# ====== 建立 Autoencoder 模型 ======
+# input_dim = X_scaled.shape[1]
+# encoding_dim = 16
+
+# input_layer = layers.Input(shape=(input_dim,))
+
+# # Encoder
+# x = layers.Dense(64, activation='relu')(input_layer)
+# x = layers.Dense(32, activation='relu')(x)
+# bottleneck = layers.Dense(encoding_dim, activation='linear', name='bottleneck')(x)
+
+# # Decoder
+# x = layers.Dense(32, activation='relu')(bottleneck)
+# x = layers.Dense(64, activation='relu')(x)
+# output_layer = layers.Dense(input_dim, activation='linear')(x)
+
+# autoencoder = models.Model(inputs=input_layer, outputs=output_layer)
+# encoder = models.Model(inputs=input_layer, outputs=bottleneck)
+
+# autoencoder.compile(optimizer=Adam(learning_rate=0.0005), loss='mse')
+# autoencoder.summary()
+# ==================================
+
+# ==================================
+# ====== 建立 Autoencoder 模型 加入 L2 正則化 + Dropout ======
 input_dim = X_scaled.shape[1]
 encoding_dim = 16
 
-# Autoencoder 結構
+# ===== Autoencoder 結構 =====
 input_layer = layers.Input(shape=(input_dim,))
 
-# Encoder
-x = layers.Dense(64, activation='relu')(input_layer)
-x = layers.Dense(32, activation='relu')(x)
-bottleneck = layers.Dense(encoding_dim, activation='linear', name='bottleneck')(x)
+# ===== Encoder =====
+x = layers.Dense(
+    64, activation='relu',
+    kernel_regularizer=l2(1e-4)
+)(input_layer)
+x = layers.Dropout(0.2)(x)
 
-# Decoder
-x = layers.Dense(32, activation='relu')(bottleneck)
-x = layers.Dense(64, activation='relu')(x)
+x = layers.Dense(
+    32, activation='relu',
+    kernel_regularizer=l2(1e-4)
+)(x)
+x = layers.Dropout(0.2)(x)
+
+bottleneck = layers.Dense(
+    encoding_dim, activation='linear',
+    name='bottleneck'
+)(x)
+
+# ===== Decoder =====
+x = layers.Dense(
+    32, activation='relu',
+    kernel_regularizer=l2(5e-5)
+)(bottleneck)
+# Decoder dropout 降低
+x = layers.Dropout(0.1)(x)
+
+x = layers.Dense(
+    64, activation='relu',
+    kernel_regularizer=l2(5e-5)
+)(x)
+# 最後一層通常不加 Dropout
+
 output_layer = layers.Dense(input_dim, activation='linear')(x)
 
+# ===== Models =====
 autoencoder = models.Model(inputs=input_layer, outputs=output_layer)
 encoder = models.Model(inputs=input_layer, outputs=bottleneck)
 
 autoencoder.compile(optimizer=Adam(learning_rate=0.0005), loss='mse')
+
 autoencoder.summary()
+# ==================================
 
 # 訓練 Autoencoder
 logger.info("\n===== Training Autoencoder =====")
